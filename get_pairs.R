@@ -1,18 +1,24 @@
 library(biomaRt)
-ensembl <- useMart("ENSEMBL_MART_ENSEMBL", host = "www.ensembl.org")
-ensembl_human <- useDataset("hsapiens_gene_ensembl", mart = ensembl)
-gene_info <- getBM(attributes = c("ensembl_gene_id",     
+library(tidyr)
+library(SummarizedExperiment)
+library(dplyr)
+
+
+mart <- useEnsembl(biomart = "ensembl", dataset = 'hsapiens_gene_ensembl')
+
+gene_info <- getBM(attributes = c("ensembl_gene_id",  
+                                  "hgnc_symbol",
                                   "strand",              
                                   "chromosome_name",    
                                   "gene_biotype",         
                                   "start_position",      
                                   "end_position",        
                                   "transcription_start_site"),  
-                   mart = ensembl_human)
+                   mart = mart)
 
 
 locate_BIP <- function(gene_info){
-  colnames(gene_info) <- c("Gene_ID", "Strand", "Chromosome", "Biotype",
+  colnames(gene_info) <- c("Gene_ID", "Gene_SYMBOL", "Strand", "Chromosome", "Biotype",
                            "Gene_Start", "Gene_End", "TSS")
   
   gene_info <- gene_info[gene_info$Chromosome %in% c(1:22, "X"),]
@@ -82,3 +88,29 @@ locate_BIP <- function(gene_info){
 }
 
 putative_bidirectional <- locate_BIP(gene_info)
+
+putative_bidirectional$pair_type <- ave(putative_bidirectional$Biotype, 
+                                        putative_bidirectional$PairID, 
+                                        FUN = function(x) paste(x, collapse = "-"))
+
+
+putative_bidirectional <- putative_bidirectional %>%
+  group_by(PairID) %>%
+  summarise(
+    Gene_ID_sense = paste(Gene_ID[Strand == 1], collapse = ", "),
+    Gene_ID_antisense = paste(Gene_ID[Strand == -1], collapse = ", "),
+    Gene_SYMBOL_sense = paste(Gene_SYMBOL[Strand == 1], collapse = ", "),
+    Gene_SYMBOL_antisense = paste(Gene_SYMBOL[Strand == -1], collapse = ", "),
+    Chromosome = paste('chr', Chromosome[Strand == 1], sep = ""),
+    Strand_sense = ifelse(any(Strand == 1), 1, NA),
+    Strand_antisense = ifelse(any(Strand == -1), -1, NA),
+    Gene_Start_sense = paste(Gene_Start[Strand == 1], collapse = ", "),
+    Gene_Start_antisense = paste(Gene_Start[Strand == -1], collapse = ", "),
+    Gene_End_sense = paste(Gene_End[Strand == 1], collapse = ", "),
+    Gene_End_antisense = paste(Gene_End[Strand == -1], collapse = ", "),
+    TSS_sense = paste(TSS[Strand == 1], collapse = ", "),
+    TSS_antisense = paste(TSS[Strand == -1], collapse = ", "),
+    Distance = paste(Distance[!is.na(Distance)], collapse = ", "),  
+    pair_type = paste(unique(pair_type), collapse = "-")  
+  ) %>%
+  ungroup()
